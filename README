@@ -1,0 +1,14 @@
+Definition:
+
+- Realtime group chat application in which multiple users can connect and chat
+- Stack:
+  - Go for backend
+  - Socket.io
+  - Firebase DB?
+  - Hosting, AWS?
+
+User stories:
+
+- I can sign up and login
+- I can send messages
+- I can receive/view messages that other users have sent
