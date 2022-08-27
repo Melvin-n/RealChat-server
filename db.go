@@ -6,7 +6,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go"
-	"github.com/melvin-n/realchat/models"
 	"google.golang.org/api/option"
 )
 
@@ -27,14 +26,8 @@ func fireBaseConnect() (*firestore.Client, error) {
 		return nil, err
 	}
 
-	defer client.Close()
+	//defer client.Close()
 	//TODO: fix db permissions - unable to write
-	_, _, err = client.Collection("users").Add(ctx, models.User{
-		Username:       "Melvin",
-		Id:             "1",
-		Email:          "test@mail.com",
-		HashedPassword: "####",
-	})
 	if err != nil {
 		log.Fatalf("Unable to add to DB: %s", err.Error())
 	}
