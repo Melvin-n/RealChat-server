@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/melvin-n/realchat/models"
 	"golang.org/x/crypto/bcrypt"
-	"google.golang.org/api/iterator"
 )
 
 func router() {
@@ -33,7 +32,7 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	password, err := bcrypt.GenerateFromPassword([]byte(newUser.HashedPassword), 5)
+	password, err := bcrypt.GenerateFromPassword([]byte(newUser.Password), 5)
 	if err != nil {
 		log.Println("Password hashing error")
 		w.WriteHeader(http.StatusBadRequest)
@@ -48,42 +47,71 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 	checkForDuplicates(ctx, "users", "Email", newUser.Email)
 
 	_, _, err = db.Collection("users").Add(ctx, models.User{
-		Username:       newUser.Username,
-		Email:          newUser.Email,  //TODO: check email validity
-		HashedPassword: hashedPassword, //TODO: check password validity
+		Username: newUser.Username,
+		Email:    newUser.Email,  //TODO: check email validity
+		Password: hashedPassword, //TODO: check password validity
 	})
 	if err != nil {
-		log.Fatalf("Unable to add to DB: %s", err.Error())
+		log.Printf("Unable to add to DB: %s", err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK) //TODO: write custom status messages
+	w.WriteHeader(http.StatusCreated) //TODO: write custom status messages
+	w.Header().Set("Content-Type", "application/json")
+	response := make(map[string]string)
+	response["message"] = fmt.Sprintf("Successfully created user %s", newUser.Username)
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("Error marshalling response")
+		return
+	}
+	w.Write(jsonResponse)
 	return
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
-	var userDetails models.User
-	err := json.NewDecoder(r.Body).Decode(&userDetails)
+	var userRequestDetails models.User
+	err := json.NewDecoder(r.Body).Decode(&userRequestDetails)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		log.Panic("Unable to parse signUp request")
 	}
-	fmt.Println(userDetails.Username)
+	fmt.Println(userRequestDetails.Username)
 	ctx := context.Background()
-	iter := db.Collection("users").Where("Username", "==", userDetails.Username).Documents(ctx)
+	iter := db.Collection("users").Where("Username", "==", userRequestDetails.Username).Documents(ctx)
 
-	for {
-		doc, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		fmt.Println(doc.Data())
+	matches, err := iter.GetAll()
+
+	if len(matches) > 1 {
+		log.Println("Error: Multiple accounts with same username")
+		return
+	}
+	var userDBDetails models.User
+	err = matches[0].DataTo(&userDBDetails)
+	if err != nil {
+		log.Println("Unable to retrieve user password")
+		return
+	}
+	fmt.Println(userDBDetails.Password)
+
+	err = bcrypt.CompareHashAndPassword([]byte(userDBDetails.Password), []byte(userRequestDetails.Password))
+	if err != nil {
+		log.Printf("Password does not match %s:\n", err.Error())
+		return
 	}
 
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	response := make(map[string]string)
+	response["message"] = fmt.Sprintf("Successfully logged in as %s", userRequestDetails.Username)
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("Error marshalling response")
+		return
+	}
+	w.Write(jsonResponse)
+	log.Printf("Successfully logged in as %s", userRequestDetails.Username)
 }
 
 func checkForDuplicates(ctx context.Context, collection, field, value string) {
