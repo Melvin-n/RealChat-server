@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/melvin-n/realchat/models"
@@ -25,11 +26,13 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&newUser)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		log.Panic("Unable to parse signUp request")
+
+		return
 	}
 
 	if len(newUser.Username) < 4 {
 		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	password, err := bcrypt.GenerateFromPassword([]byte(newUser.Password), 5)
@@ -57,7 +60,7 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated) //TODO: write custom status messages
+	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
 	response := make(map[string]string)
 	response["message"] = fmt.Sprintf("Successfully created user %s", newUser.Username)
@@ -75,7 +78,6 @@ func login(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&userRequestDetails)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		log.Panic("Unable to parse signUp request")
 	}
 	fmt.Println(userRequestDetails.Username)
 	ctx := context.Background()
@@ -93,7 +95,6 @@ func login(w http.ResponseWriter, r *http.Request) {
 		log.Println("Unable to retrieve user password")
 		return
 	}
-	fmt.Println(userDBDetails.Password)
 
 	err = bcrypt.CompareHashAndPassword([]byte(userDBDetails.Password), []byte(userRequestDetails.Password))
 	if err != nil {
@@ -101,8 +102,26 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	authCookie := http.Cookie{
+		Name:    "user",
+		Value:   userRequestDetails.Username,
+		Expires: time.Now().AddDate(0, 0, 1),
+		MaxAge:  3600,
+		Path:    "/",
+	}
+
+	http.SetCookie(w, &authCookie)
 	w.WriteHeader(http.StatusOK)
+	err = authCookie.Valid()
+	if err != nil {
+		log.Printf("Cookie not valid: %s", err.Error())
+	}
 	w.Header().Set("Content-Type", "application/json")
+	_, err = r.Cookie("user")
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	fmt.Println(w)
 	response := make(map[string]string)
 	response["message"] = fmt.Sprintf("Successfully logged in as %s", userRequestDetails.Username)
 	jsonResponse, err := json.Marshal(response)
@@ -112,6 +131,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Write(jsonResponse)
 	log.Printf("Successfully logged in as %s", userRequestDetails.Username)
+	return
 }
 
 func checkForDuplicates(ctx context.Context, collection, field, value string) {
