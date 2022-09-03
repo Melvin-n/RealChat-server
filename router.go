@@ -106,7 +106,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 		Name:    "user",
 		Value:   userRequestDetails.Username,
 		Expires: time.Now().AddDate(0, 0, 1),
-		MaxAge:  3600,
+		MaxAge:  86400,
 		Path:    "/",
 	}
 
@@ -116,12 +116,8 @@ func login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Cookie not valid: %s", err.Error())
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_, err = r.Cookie("user")
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-	fmt.Println(w)
 	response := make(map[string]string)
 	response["message"] = fmt.Sprintf("Successfully logged in as %s", userRequestDetails.Username)
 	jsonResponse, err := json.Marshal(response)
@@ -129,6 +125,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error marshalling response")
 		return
 	}
+
 	w.Write(jsonResponse)
 	log.Printf("Successfully logged in as %s", userRequestDetails.Username)
 	return
@@ -143,5 +140,6 @@ func checkForDuplicates(ctx context.Context, collection, field, value string) {
 
 	if len(matches) > 0 {
 		log.Fatalf("%s is already attached to an account", field)
+		return
 	}
 }
