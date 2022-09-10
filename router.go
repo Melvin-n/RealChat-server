@@ -13,8 +13,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+func enableCors(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE")
+}
+
 func router() {
 	r := mux.NewRouter()
+	//TODO: create cors middleware
 	r.HandleFunc("/signup", signUp).Methods("POST")
 	r.HandleFunc("/login", login).Methods("POST")
 	log.Println("Server listening on port 8080...")
@@ -22,6 +28,7 @@ func router() {
 }
 
 func signUp(w http.ResponseWriter, r *http.Request) {
+
 	var newUser models.User
 	err := json.NewDecoder(r.Body).Decode(&newUser)
 	if err != nil {
@@ -62,6 +69,7 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
+	enableCors(&w)
 	response := make(map[string]string)
 	response["message"] = fmt.Sprintf("Successfully created user %s", newUser.Username)
 	jsonResponse, err := json.Marshal(response)
@@ -74,6 +82,10 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
+	enableCors(&w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+	}
 	var userRequestDetails models.User
 	err := json.NewDecoder(r.Body).Decode(&userRequestDetails)
 	if err != nil {
