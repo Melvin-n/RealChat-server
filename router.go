@@ -20,20 +20,17 @@ func accessControlMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT")
 		w.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type")
 
-		if r.Method == "OPTIONS" {
-			fmt.Println("oopppp")
-			return
-		}
-
 		next.ServeHTTP(w, r)
 	})
 }
 func router() {
 	r := mux.NewRouter()
 	r.Use(accessControlMiddleware)
-
-	r.HandleFunc("/signup", signUp).Methods("POST", "OPTIONS")
-	r.HandleFunc("/login", login).Methods("POST", "OPTIONS")
+	r.Methods("OPTIONS").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return
+	})
+	r.HandleFunc("/signup", signUp).Methods("POST")
+	r.HandleFunc("/login", login).Methods("POST")
 	log.Println("Server listening on port 8080...")
 	http.ListenAndServe(":8080", r)
 }
@@ -43,29 +40,31 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 	var newUser models.User
 	err := json.NewDecoder(r.Body).Decode(&newUser)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusOK)
 
 		return
 	}
 
 	if len(newUser.Username) < 4 {
-		w.WriteHeader(http.StatusBadRequest)
+		handleResponse(&w, http.StatusOK, "Username is too short - must be 4 characters or more.")
 		return
 	}
 
 	password, err := bcrypt.GenerateFromPassword([]byte(newUser.Password), 5)
 	if err != nil {
 		log.Println("Password hashing error")
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		w.WriteHeader(http.StatusOK)
 	}
 	hashedPassword := string(password)
 
 	ctx := context.Background()
 
 	//search if user or email already exists
-	checkForDuplicates(ctx, "users", "Username", newUser.Username)
-	checkForDuplicates(ctx, "users", "Email", newUser.Email)
+	err = checkForDuplicates(ctx, "users", "Username", newUser.Username)
+	err = checkForDuplicates(ctx, "users", "Email", newUser.Email)
+	if err != nil {
+		handleResponse(&w, http.StatusOK, err.Error())
+	}
 
 	_, _, err = db.Collection("users").Add(ctx, models.User{
 		Username: newUser.Username,
@@ -75,19 +74,9 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Unable to add to DB: %s", err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
-		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	w.Header().Set("Content-Type", "application/json")
-	response := make(map[string]string)
-	response["message"] = fmt.Sprintf("Successfully created user %s", newUser.Username)
-	jsonResponse, err := json.Marshal(response)
-	if err != nil {
-		log.Printf("Error marshalling response")
-		return
-	}
-	w.Write(jsonResponse)
+	handleResponse(&w, http.StatusCreated, fmt.Sprintf("Successfully created user %s", newUser.Username))
 	return
 }
 
@@ -102,6 +91,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	iter := db.Collection("users").Where("Username", "==", userRequestDetails.Username).Documents(ctx)
 
 	if userRequestDetails.Username == "" || userRequestDetails.Password == "" {
+		handleResponse(&w, http.StatusOK, "Can not process blank fields")
 		log.Println("Can not process blank fields")
 		return
 	}
@@ -109,20 +99,27 @@ func login(w http.ResponseWriter, r *http.Request) {
 	matches, err := iter.GetAll()
 
 	if len(matches) > 1 {
+		handleResponse(&w, http.StatusOK, "Error: Multiple accounts with same username")
 		log.Println("Error: Multiple accounts with same username")
+		return
+	}
+
+	if len(matches) == 0 {
+		handleResponse(&w, http.StatusOK, "Incorrect username or password")
+		log.Println("Incorrect username or password")
 		return
 	}
 	var userDBDetails models.User
 	err = matches[0].DataTo(&userDBDetails)
 	if err != nil {
 		log.Println("Unable to retrieve user password")
-		return
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(userDBDetails.Password), []byte(userRequestDetails.Password))
 	if err != nil {
+		handleResponse(&w, http.StatusOK, "Incorrect username or password")
 		log.Printf("Password does not match %s:\n", err.Error())
-		return
+
 	}
 
 	authCookie := http.Cookie{
@@ -140,21 +137,13 @@ func login(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Cookie not valid: %s", err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	response := make(map[string]string)
-	response["message"] = fmt.Sprintf("Successfully logged in as %s", userRequestDetails.Username)
-	jsonResponse, err := json.Marshal(response)
-	if err != nil {
-		log.Printf("Error marshalling response")
-		return
-	}
+	handleResponse(&w, http.StatusOK, fmt.Sprintf("Successfully logged in as %s", userRequestDetails.Username))
 
-	w.Write(jsonResponse)
 	log.Printf("Successfully logged in as %s", userRequestDetails.Username)
 	return
 }
 
-func checkForDuplicates(ctx context.Context, collection, field, value string) {
+func checkForDuplicates(ctx context.Context, collection, field, value string) error {
 	iter := db.Collection(collection).Where(field, "==", value)
 	matches, err := iter.Documents(ctx).GetAll()
 	if err != nil {
@@ -162,7 +151,21 @@ func checkForDuplicates(ctx context.Context, collection, field, value string) {
 	}
 
 	if len(matches) > 0 {
-		log.Fatalf("%s is already attached to an account", field)
+		return fmt.Errorf("%s is already attached to an account", field)
+	}
+
+	return nil
+}
+
+func handleResponse(w *http.ResponseWriter, status int, message string) {
+	(*w).WriteHeader(status)
+	(*w).Header().Set("Content-Type", "application/json")
+	response := make(map[string]string)
+	response["message"] = message
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("Error marshalling response")
 		return
 	}
+	(*w).Write(jsonResponse)
 }
