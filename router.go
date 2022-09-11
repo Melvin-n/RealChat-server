@@ -13,16 +13,27 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func enableCors(w *http.ResponseWriter) {
-	(*w).Header().Set("Access-Control-Allow-Origin", "*")
-	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE")
-}
+func accessControlMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("mw")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT")
+		w.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type")
 
+		if r.Method == "OPTIONS" {
+			fmt.Println("oopppp")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
 func router() {
 	r := mux.NewRouter()
-	//TODO: create cors middleware
-	r.HandleFunc("/signup", signUp).Methods("POST")
-	r.HandleFunc("/login", login).Methods("POST")
+	r.Use(accessControlMiddleware)
+
+	r.HandleFunc("/signup", signUp).Methods("POST", "OPTIONS")
+	r.HandleFunc("/login", login).Methods("POST", "OPTIONS")
 	log.Println("Server listening on port 8080...")
 	http.ListenAndServe(":8080", r)
 }
@@ -69,7 +80,6 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
-	enableCors(&w)
 	response := make(map[string]string)
 	response["message"] = fmt.Sprintf("Successfully created user %s", newUser.Username)
 	jsonResponse, err := json.Marshal(response)
@@ -82,10 +92,6 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
-	enableCors(&w)
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
-	}
 	var userRequestDetails models.User
 	err := json.NewDecoder(r.Body).Decode(&userRequestDetails)
 	if err != nil {
@@ -94,6 +100,11 @@ func login(w http.ResponseWriter, r *http.Request) {
 	fmt.Println(userRequestDetails.Username)
 	ctx := context.Background()
 	iter := db.Collection("users").Where("Username", "==", userRequestDetails.Username).Documents(ctx)
+
+	if userRequestDetails.Username == "" || userRequestDetails.Password == "" {
+		log.Println("Can not process blank fields")
+		return
+	}
 
 	matches, err := iter.GetAll()
 
